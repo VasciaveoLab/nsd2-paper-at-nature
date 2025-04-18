@@ -18,7 +18,7 @@ sc.logging.print_header()
 
 my_random_seed = 666
 n_cells_to_subsample = 3e3
-n_cores = 8
+n_cores = 16
 
 sc.settings.n_jobs = int(n_cores)
 sc.settings.set_figure_params(dpi=80,vector_friendly=False)
@@ -28,7 +28,7 @@ def main():
 
     # Set the directories
     experiment_name = "nsd2-paper-experiment"
-    new_data_dir = "/Users/gaizenman/Desktop/nepc_dataset/new_data"
+    new_data_dir = "/shares/vasciaveo_lab/data/nepc_organoid_project/new_data/"
     logging_path = os.path.join(new_data_dir, "logs/")
 
     # set up logging
@@ -44,16 +44,16 @@ def main():
     # Load all the h5ad files for the samples and concat
     sc_samples = ["MJ002", "MJ004", "MJ005", "MJ007", "MJ008", "MJ014", "MJ015"]
     sc_adata_name = "adata_scRNASeq.h5ad"
-    load_concat_adata(sample_file_dict, sc_samples, logger, new_data_dir, sc_adata_name)
+    sc_adata = load_concat_adata(sample_file_dict, sc_samples, logger, new_data_dir, sc_adata_name)
 
     sn_samples = ["MJ018", "MJ019", "MJ020", "MJ021", "MJ022", "MJ023", "MJ024", "MJ025"]
     sn_adata_name = "adata_snRNASeq.h5ad"
-    load_concat_adata(sample_file_dict, sn_samples, logger, new_data_dir, sn_adata_name)
+    sn_adata = load_concat_adata(sample_file_dict, sn_samples, logger, new_data_dir, sn_adata_name)
 
 
     # Run pyviper to get protein activity data
     print("Inferring protein activity data...")
-    network_path = os.path.join(new_data_dir, '/networks/MJ-02-04-05-07-metacells-with-chga-merged.tsv')
+    network_path = os.path.join(new_data_dir, 'networks/MJ-02-04-05-07-metacells-with-chga-merged.tsv')
     aracne_network = pd.read_csv(network_path, delimiter="\t")
     network_interactome_full = pyviper.Interactome('organoids-network', aracne_network) # convert to class Interactome
 
@@ -74,9 +74,24 @@ def main():
     print(network_interactome_tfs_cotfs_pruned.size())
     print(network_interactome_full_pruned.size())
 
-    # get_protein_activity(adata, network_interactome_full, logger, num_cores=n_cores)
-    
+    print("Running pyviper on sc...")
+    sc_prot_act_name = "sc_prot_act_full_pruned.h5ad"
+    sc_prot_act = get_protein_activity(sc_adata, network_interactome_tfs_cotfs_pruned, sc_prot_act_name, new_data_dir, logger, num_cores=n_cores)
 
+    print("Running pyviper on sn...")
+    sn_prot_act_name = "sn_prot_act_full_pruned.h5ad"
+    sn_prot_act = get_protein_activity(sn_adata, network_interactome_tfs_cotfs_pruned, sn_prot_act_name, new_data_dir, logger, num_cores=n_cores)
+    
+    # Concatenate the protein activity data if not already created
+    sc_adata.obs["RFP"] = [ 1 if i > 0 else 0 for i in sc_adata[:,"addgene26001"].X ]
+    sc_adata.obs["RFP_int"] = sc_adata.obs["RFP"]
+    sc_adata.obs["RFP"] = sc_adata.obs["RFP"].astype("category")
+
+    sc_prot_act.obs = sc_adata.obs.join( sc_prot_act.obs , rsuffix="_pas")
+    sn_prot_act.obs = sn_adata.obs.join( sn_prot_act.obs , rsuffix="_pas")
+
+    combined_prot_act_name = "prot_act_concatenated.h5ad"
+    concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger)   
 
 if __name__ == '__main__':
     main()

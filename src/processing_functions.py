@@ -7,6 +7,7 @@ import datetime
 import numpy as np
 import scvelo as scv
 import pandas as pd
+from scipy.stats import norm
 import pyviper
 import copy
 import gc
@@ -230,9 +231,20 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
 
     return adata
 
-def get_protein_activity(adata, network, save_dir, logger, num_cores=1):
+def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_cores=1):
+
     logger.info("Running VIPER with only TFs and coTFs")
 
+    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        return sc.read_h5ad(output_path)
+
+    print("Running pyviper...")
     vp_data = pyviper.viper(gex_data=adata, # gene expression signature
                                 interactome=network, # gene regulatory network
                                 enrichment = "area",
@@ -240,3 +252,52 @@ def get_protein_activity(adata, network, save_dir, logger, num_cores=1):
                                 njobs=num_cores,
                                 verbose=False)
     
+    print(vp_data.shape)
+    vp_data.write(output_path)
+    print(f"Successfully saved protein activity data to {output_path}")
+
+    return vp_data
+
+def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger):
+
+    # This is the data for the vast majority of the analysis
+    vp_data = vp_data_sc.concatenate(
+        vp_data_sn,
+        batch_categories=["scRNASeq","snRNASeq"],
+        batch_key="technology",
+        join='inner',
+        fill_value=0
+    )
+
+    print(f"Combined vp_data shape: {vp_data.shape}")
+
+    logger.info(">>> >> Adding new sample nomenclature for the paper")
+    df = pd.read_excel(os.path.join(new_data_dir, "Single cell dataset info-use-revised-nature-rebuttal.xlsx"),skiprows=1)
+    df.rename(columns={"Name":"sample_id_for_paper","sc-RNA-seq ID":"sample_id"},inplace=True)
+    df.set_index("sample_id",inplace=True)
+    vp_data.obs = vp_data.obs.join( df , on="sample_id" )
+
+    logger.info(">>> >> Adding layer of -log10(cpm) data to [mLog10] layer")
+    vp_data.layers['mLog10'] = -1*np.log10(norm.sf( vp_data.X ))
+
+    # Apply harmony batch correction
+    sc.tl.pca(vp_data, svd_solver='arpack', random_state=my_random_seed)
+    sc.external.pp.harmony_integrate(vp_data, basis="X_pca" , key='technology', random_state=my_random_seed)
+
+    ## 3 Cluster Solution
+    n_pcs = 50
+    n_neighbors=9
+    resolution = 0.06
+    seed_from_acdc = 1
+
+    logger.info(">>> >> Computing Nearest Neighbors with n=%s and total PCs=%s" , n_neighbors , n_pcs)
+    
+    sc.pp.neighbors(vp_data, n_neighbors=n_neighbors, n_pcs=n_pcs,
+                    use_rep="X_pca_harmony",
+                    random_state=seed_from_acdc)
+
+    logger.info(">>> >> Cluster Analysis wiht Leiden ...")
+    sc.tl.leiden(vp_data, random_state=seed_from_acdc, resolution=resolution, key_added="leiden_pas")
+    logger.info(">>> >> Cluster Analysis wiht Leiden | Solution from ACDC | knn=%s , PC=%s , resolution=%s , seed=%s" , n_neighbors , n_pcs , resolution, seed_from_acdc)
+    vp_data.obs['leiden_pas'].cat.categories
+
