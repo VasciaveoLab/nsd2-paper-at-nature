@@ -1,6 +1,7 @@
 import pandas as pd
 import scanpy as sc
 import os
+import gc
 import pyviper
 import matplotlib
 import warnings
@@ -29,7 +30,7 @@ def main():
     # Set the directories
     experiment_name = "nsd2-paper-experiment"
     new_data_dir = "/shares/vasciaveo_lab/data/nepc_organoid_project/new_data/"
-    logging_path = os.path.join(new_data_dir, "logs/")
+    logging_path = "logs/"
 
     # set up logging
     print(f"Creating logger file at {logging_path}")
@@ -75,12 +76,20 @@ def main():
     print(network_interactome_full_pruned.size())
 
     print("Running pyviper on sc...")
-    sc_prot_act_name = "sc_prot_act_full_pruned.h5ad"
+    sc_prot_act_name = "sc_prot_act_pruned.h5ad"
     sc_prot_act = get_protein_activity(sc_adata, network_interactome_tfs_cotfs_pruned, sc_prot_act_name, new_data_dir, logger, num_cores=n_cores)
 
+    print("Running pyviper on sc with full interactome...")
+    sc_prot_act_full_name = "sc_prot_act_full_pruned.h5ad"
+    sc_prot_act_full = get_protein_activity(sc_adata, network_interactome_full_pruned, sc_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
+
     print("Running pyviper on sn...")
-    sn_prot_act_name = "sn_prot_act_full_pruned.h5ad"
+    sn_prot_act_name = "sn_prot_act_pruned.h5ad"
     sn_prot_act = get_protein_activity(sn_adata, network_interactome_tfs_cotfs_pruned, sn_prot_act_name, new_data_dir, logger, num_cores=n_cores)
+
+    print("Running pyviper on sn with full interactome...")
+    sn_prot_act_full_name = "sn_prot_act_full_pruned.h5ad"
+    sn_prot_act_full = get_protein_activity(sn_adata, network_interactome_full_pruned, sn_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
     
     # Concatenate the protein activity data if not already created
     sc_adata.obs["RFP"] = [ 1 if i > 0 else 0 for i in sc_adata[:,"addgene26001"].X ]
@@ -89,9 +98,17 @@ def main():
 
     sc_prot_act.obs = sc_adata.obs.join( sc_prot_act.obs , rsuffix="_pas")
     sn_prot_act.obs = sn_adata.obs.join( sn_prot_act.obs , rsuffix="_pas")
+    sc_prot_act_full.obs = sc_adata.obs.join( sc_prot_act_full.obs , rsuffix="_pas")
+    sn_prot_act_full.obs = sn_adata.obs.join( sn_prot_act_full.obs , rsuffix="_pas")
 
     combined_prot_act_name = "prot_act_concatenated.h5ad"
-    concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger)   
+    concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
+
+    combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
+    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger) 
+
+    human_prot_act_name = "human_prot_act.h5ad"
+    human_vp_conversion(new_data_dir, human_prot_act_name, prot_act_full_concat, logger)
 
 if __name__ == '__main__':
     main()

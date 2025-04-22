@@ -10,11 +10,129 @@ import pandas as pd
 from scipy.stats import norm
 import pyviper
 import copy
-import gc
+import shutil
+import gzip
 from cellrank.kernels import CytoTRACEKernel
 
 my_random_seed = 666
 n_cells_to_subsample = 3e3
+
+def filter_peaks(sample_adata, sample_path):
+
+    # Try to locate the features file. It is usually named "features.tsv" or "genes.tsv"
+    features_file = os.path.join(sample_path, "features.tsv.gz")
+    if os.path.exists(features_file):
+        df_features = pd.read_csv(features_file, sep="\t", header=None, compression="gzip")
+    else:
+        features_file = os.path.join(sample_path, "genes.tsv")
+        df_features = pd.read_csv(features_file, sep="\t", header=None)
+    
+    # Filter out non-Gene Expression features (like "Peaks")
+    if df_features.shape[1] >= 3 and "Gene Expression" in df_features[2].unique():
+        
+        df_filtered = df_features[df_features[2] == "Gene Expression"].copy()
+        before = sample_adata.n_vars
+
+        # Only filter if "Peaks" are actually present in the data
+        if "Peaks" in df_features[2].unique():
+
+            # Create set of valid genes from the features file with various normalization options
+            valid_genes = set()
+            valid_genes.update(df_filtered[1].tolist())
+            
+            # Add syntax fix due to scanpy and var_names_make_unique
+            valid_genes.update(gene.lower() for gene in df_filtered[1].tolist())
+            valid_genes.update(gene.split('-')[0] for gene in df_filtered[1].tolist() if '-' in gene)
+            valid_genes.update(gene.lower().split('-')[0] for gene in df_filtered[1].tolist() if '-' in gene)
+            
+            # Create a mask for filtering genes
+            mask = []
+            for gene in sample_adata.var_names:
+                # Check different possible variations of the gene name
+                if (gene in valid_genes or 
+                    gene.lower() in valid_genes or
+                    (('-' in gene) and gene.split('-')[0] in valid_genes) or
+                    (('-' in gene) and gene.lower().split('-')[0] in valid_genes)):
+                    mask.append(True)
+                else:
+                    mask.append(False)
+            
+            sample_adata = sample_adata[:, mask].copy()
+            
+            # Report retention statistics
+            after = sample_adata.n_vars
+            print(f"Retained {after} features out of {before} ({after/before*100:.2f}%) after removing Peaks.", flush=True)
+        else:
+            print(f"No 'Peaks' found, keeping all features.", flush=True)
+    else:
+        print(f"Only 2 rows, keeping all features.", flush=True)
+    
+    return sample_adata
+
+def fix_and_gzip_10x(base_path: str) -> str:
+
+    # Create a new folder to put gzipped files in
+    out_dir = os.path.join(base_path, "adjusted_for_scanpy")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Read the genes path
+    p = os.path.join(base_path, "genes.tsv")
+    df = pd.read_csv(
+        p, sep="\t", header=None,
+        compression=None,
+        dtype=str
+    )
+
+    # trim to 3 columns
+    if df.shape[1] > 3:
+        df = df.iloc[:, :3]
+
+    # write features.tsv.gz
+    out_feats = os.path.join(out_dir, "features.tsv.gz")
+    with gzip.open(out_feats, "wt") as f:
+        df.to_csv(f, sep="\t", header=False, index=False)
+
+    # gzip barcodes.tsv
+    src = os.path.join(base_path, "barcodes.tsv")
+    if os.path.exists(src):
+        dst = os.path.join(out_dir, "barcodes.tsv.gz")
+        with open(src, "rb") as fi, gzip.open(dst, "wb") as fo:
+            shutil.copyfileobj(fi, fo)
+
+    # 3) gzip matrix.mtx
+    src = os.path.join(base_path, "matrix.mtx")
+    if os.path.exists(src):
+        dst = os.path.join(out_dir, "matrix.mtx.gz")
+        with open(src, "rb") as fi, gzip.open(dst, "wb") as fo:
+            shutil.copyfileobj(fi, fo)
+
+    return out_dir
+
+def trim_gzip_to_three_columns(base_path: str):
+
+    # Path to genes
+    gz_file    = os.path.join(base_path, "features.tsv.gz")
+    backup_file = gz_file + ".backup"
+    
+    # Skip if already backed up or already ≤3 columns
+    if os.path.exists(backup_file):
+        return
+    
+    # Load all columns as strings
+    df = pd.read_csv(gz_file, sep="\t", header=None,
+                     compression="gzip", dtype=str)
+    if df.shape[1] <= 3:
+        return
+    
+    # Backup original, then trim and write
+    shutil.move(gz_file, backup_file)
+    df.iloc[:, :3].to_csv(
+        gz_file,
+        sep="\t",
+        header=False,
+        index=False,
+        compression="gzip"
+    )
 
 def create_h5ad_for_samples(dataset_path):
     """Process all samples and create h5ad files in a central directory if not already created"""
@@ -43,12 +161,19 @@ def create_h5ad_for_samples(dataset_path):
         try:
             # Read 10x data and save as h5ad
             adata = sc.read_10x_mtx(filtered_feature_path)
+            adata.var_names_make_unique()
+            # Remove any non-gex data
+            adata = filter_peaks(adata, filtered_feature_path)
             adata.obs['sample'] = sample_name
             adata.write(h5ad_file)
             print(f"Created {h5ad_file}")
         except Exception as e:
             try:
+                # Read the adata
                 adata = sc.read_10x_mtx(sample_dir)
+                adata.var_names_make_unique()
+                # Remove any non-gex data
+                adata = filter_peaks(adata, filtered_feature_path)
                 adata.obs['sample'] = sample_name
                 adata.write(h5ad_file)
                 print(f"Created {h5ad_file}")
@@ -258,7 +383,18 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
 
     return vp_data
 
-def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger):
+def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False):
+
+    logger.info("Combining protein activity")
+
+    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        return sc.read_h5ad(output_path)
 
     # This is the data for the vast majority of the analysis
     vp_data = vp_data_sc.concatenate(
@@ -280,24 +416,68 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger):
     logger.info(">>> >> Adding layer of -log10(cpm) data to [mLog10] layer")
     vp_data.layers['mLog10'] = -1*np.log10(norm.sf( vp_data.X ))
 
-    # Apply harmony batch correction
-    sc.tl.pca(vp_data, svd_solver='arpack', random_state=my_random_seed)
-    sc.external.pp.harmony_integrate(vp_data, basis="X_pca" , key='technology', random_state=my_random_seed)
+    if harmony:
+        # Apply harmony batch correction
+        sc.tl.pca(vp_data, svd_solver='arpack', random_state=my_random_seed)
+        sc.external.pp.harmony_integrate(vp_data, basis="X_pca" , key='technology', random_state=my_random_seed)
 
-    ## 3 Cluster Solution
-    n_pcs = 50
-    n_neighbors=9
-    resolution = 0.06
-    seed_from_acdc = 1
+        ## 3 Cluster Solution
+        n_pcs = 50
+        n_neighbors=9
+        resolution = 0.06
+        seed_from_acdc = 1
 
-    logger.info(">>> >> Computing Nearest Neighbors with n=%s and total PCs=%s" , n_neighbors , n_pcs)
+        logger.info(">>> >> Computing Nearest Neighbors with n=%s and total PCs=%s" , n_neighbors , n_pcs)
+        
+        sc.pp.neighbors(vp_data, n_neighbors=n_neighbors, n_pcs=n_pcs,
+                        use_rep="X_pca_harmony",
+                        random_state=seed_from_acdc)
+
+        logger.info(">>> >> Cluster Analysis wiht Leiden ...")
+        sc.tl.leiden(vp_data, random_state=seed_from_acdc, resolution=resolution, key_added="leiden_pas")
+        logger.info(">>> >> Cluster Analysis wiht Leiden | Solution from ACDC | knn=%s , PC=%s , resolution=%s , seed=%s" , n_neighbors , n_pcs , resolution, seed_from_acdc)
+        vp_data.obs['leiden_pas'].cat.categories
+
+    # Make sure all sata types are str for saving to h5ad
+    for col in vp_data.obs.select_dtypes(include="object").columns:
+        vp_data.obs[col] = vp_data.obs[col].astype(str)
+
+    vp_data.write(output_path)
+    print(f"Successfully saved protein activity data to {output_path}")
+
+    return vp_data
+
+def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
+
+    logger.info("Human gene pathway analysis")
+
+    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        return
+
+    logger.info(">>> >> Using VP Data with SIG and SURF for Pathway Analysis")
+    vp_data_human = copy.deepcopy(vp_data_full)
+    pyviper.pp.translate(vp_data_human, desired_format = "human_symbol")
+
+    MSigDB_H_Pathways_regulon = pyviper.load.msigdb_regulon("h")
+    # MSigDB_H_Pathways_regulon.filter_targets(vp_data_human.var_names)
+    vp_cancer_hallmarks = pyviper.viper( gex_data=vp_data_human , interactome=MSigDB_H_Pathways_regulon , enrichment="area" , 
+                                        min_targets=10,
+                                        output_as_anndata=True , njobs=8 , verbose=False )
     
-    sc.pp.neighbors(vp_data, n_neighbors=n_neighbors, n_pcs=n_pcs,
-                    use_rep="X_pca_harmony",
-                    random_state=seed_from_acdc)
+    print("Adding layer of -log10(cpm) data to [mLog10] layer to Beltran and Hieronymus pathway enrichment analysis")
+    vp_cancer_hallmarks.layers['mLog10'] = -1*np.log10(norm.sf( vp_cancer_hallmarks.X ))
 
-    logger.info(">>> >> Cluster Analysis wiht Leiden ...")
-    sc.tl.leiden(vp_data, random_state=seed_from_acdc, resolution=resolution, key_added="leiden_pas")
-    logger.info(">>> >> Cluster Analysis wiht Leiden | Solution from ACDC | knn=%s , PC=%s , resolution=%s , seed=%s" , n_neighbors , n_pcs , resolution, seed_from_acdc)
-    vp_data.obs['leiden_pas'].cat.categories
+    # Make sure all sata types are str for saving to h5ad
+    for col in vp_data_human.obs.select_dtypes(include="object").columns:
+        vp_data_human.obs[col] = vp_data_human.obs[col].astype(str)
 
+    vp_data_human.write(output_path)
+    print(f"Successfully saved protein activity data to {output_path}")
+
+    return
