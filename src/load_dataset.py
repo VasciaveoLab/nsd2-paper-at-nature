@@ -102,10 +102,10 @@ def main():
     sn_prot_act_full.obs = sn_adata.obs.join( sn_prot_act_full.obs , rsuffix="_pas")
 
     combined_prot_act_name = "prot_act_concatenated.h5ad"
-    concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
+    prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
 
     combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
-    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger) 
+    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger, prot_act_concat=prot_act_concat) 
 
     human_prot_act_name = "human_prot_act.h5ad"
     human_vp_conversion(new_data_dir, human_prot_act_name, prot_act_full_concat, logger)

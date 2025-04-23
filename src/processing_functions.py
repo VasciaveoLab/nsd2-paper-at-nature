@@ -10,8 +10,6 @@ import pandas as pd
 from scipy.stats import norm
 import pyviper
 import copy
-import shutil
-import gzip
 from cellrank.kernels import CytoTRACEKernel
 
 my_random_seed = 666
@@ -69,70 +67,6 @@ def filter_peaks(sample_adata, sample_path):
     
     return sample_adata
 
-def fix_and_gzip_10x(base_path: str) -> str:
-
-    # Create a new folder to put gzipped files in
-    out_dir = os.path.join(base_path, "adjusted_for_scanpy")
-    os.makedirs(out_dir, exist_ok=True)
-
-    # Read the genes path
-    p = os.path.join(base_path, "genes.tsv")
-    df = pd.read_csv(
-        p, sep="\t", header=None,
-        compression=None,
-        dtype=str
-    )
-
-    # trim to 3 columns
-    if df.shape[1] > 3:
-        df = df.iloc[:, :3]
-
-    # write features.tsv.gz
-    out_feats = os.path.join(out_dir, "features.tsv.gz")
-    with gzip.open(out_feats, "wt") as f:
-        df.to_csv(f, sep="\t", header=False, index=False)
-
-    # gzip barcodes.tsv
-    src = os.path.join(base_path, "barcodes.tsv")
-    if os.path.exists(src):
-        dst = os.path.join(out_dir, "barcodes.tsv.gz")
-        with open(src, "rb") as fi, gzip.open(dst, "wb") as fo:
-            shutil.copyfileobj(fi, fo)
-
-    # 3) gzip matrix.mtx
-    src = os.path.join(base_path, "matrix.mtx")
-    if os.path.exists(src):
-        dst = os.path.join(out_dir, "matrix.mtx.gz")
-        with open(src, "rb") as fi, gzip.open(dst, "wb") as fo:
-            shutil.copyfileobj(fi, fo)
-
-    return out_dir
-
-def trim_gzip_to_three_columns(base_path: str):
-
-    # Path to genes
-    gz_file    = os.path.join(base_path, "features.tsv.gz")
-    backup_file = gz_file + ".backup"
-    
-    # Skip if already backed up or already ≤3 columns
-    if os.path.exists(backup_file):
-        return
-    
-    # Load all columns as strings
-    df = pd.read_csv(gz_file, sep="\t", header=None,
-                     compression="gzip", dtype=str)
-    if df.shape[1] <= 3:
-        return
-    
-    # Backup original, then trim and write
-    shutil.move(gz_file, backup_file)
-    df.iloc[:, :3].to_csv(
-        gz_file,
-        sep="\t",
-        header=False,
-        index=False,
-        compression="gzip"
-    )
 
 def create_h5ad_for_samples(dataset_path):
     """Process all samples and create h5ad files in a central directory if not already created"""
@@ -173,7 +107,7 @@ def create_h5ad_for_samples(dataset_path):
                 adata = sc.read_10x_mtx(sample_dir)
                 adata.var_names_make_unique()
                 # Remove any non-gex data
-                adata = filter_peaks(adata, filtered_feature_path)
+                adata = filter_peaks(adata, sample_dir)
                 adata.obs['sample'] = sample_name
                 adata.write(h5ad_file)
                 print(f"Created {h5ad_file}")
@@ -383,7 +317,7 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
 
     return vp_data
 
-def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False):
+def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False, prot_act_concat=None):
 
     logger.info("Combining protein activity")
 
@@ -474,10 +408,10 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
     vp_cancer_hallmarks.layers['mLog10'] = -1*np.log10(norm.sf( vp_cancer_hallmarks.X ))
 
     # Make sure all sata types are str for saving to h5ad
-    for col in vp_data_human.obs.select_dtypes(include="object").columns:
-        vp_data_human.obs[col] = vp_data_human.obs[col].astype(str)
+    for col in vp_cancer_hallmarks.obs.select_dtypes(include="object").columns:
+        vp_cancer_hallmarks.obs[col] = vp_cancer_hallmarks.obs[col].astype(str)
 
-    vp_data_human.write(output_path)
+    vp_cancer_hallmarks.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
     return
