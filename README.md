@@ -9,8 +9,8 @@ A reproducible pipeline to load, process, and visualize NSD2 gene expression and
 ```
 nsd2-paper-at-nature/
 ├── src/
-│   ├── load_dataset.py          # Script to load raw data, process with custom functions, and save outputs
-│   ├── processing_functions.py  # Helper functions for data processing and formatting
+│   ├── load_dataset.py          # Script to load raw data, process with custom functions
+│   ├── processing_functions.py  # Helper functions for data processing, formatting, and saving
 │   └── print_charts.ipynb       # Jupyter notebook to generate figures for the manuscript
 └── README.md                    # This file
 ```
