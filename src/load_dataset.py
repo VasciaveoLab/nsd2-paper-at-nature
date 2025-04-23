@@ -18,7 +18,7 @@ sc.logging.print_header()
 
 my_random_seed = 666
 n_cells_to_subsample = 3e3
-n_cores = 16
+n_cores = 8
 
 sc.settings.n_jobs = int(n_cores)
 sc.settings.set_figure_params(dpi=80,vector_friendly=False)
@@ -104,10 +104,13 @@ def main():
     prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
 
     combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
-    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger, prot_act_concat=prot_act_concat) 
+    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger) 
 
     human_prot_act_name = "human_prot_act.h5ad"
     human_vp_conversion(new_data_dir, human_prot_act_name, prot_act_full_concat, logger)
+
+    adata_anr_name = "human_adata_anr.h5ad"
+    get_adata_anr(prot_act_concat, sc_adata, sn_adata, new_data_dir, adata_anr_name, logger)
 
 if __name__ == '__main__':
     main()

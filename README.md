@@ -1,6 +1,6 @@
 # NSD2 Paper at Nature
 
-A reproducible pipeline to load, process, and visualize NSD2 gene expression and protein activity data for the Nature paper submission.
+### A reproducible pipeline to load, process, and visualize NSD2 gene expression and protein activity data for the Nature paper submission.
 
 ![Diffusion Map Leiden](assets/diffmap_scRNASeq.png)
 

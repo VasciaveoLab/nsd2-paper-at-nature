@@ -16,6 +16,16 @@ my_random_seed = 666
 n_cells_to_subsample = 3e3
 
 def filter_peaks(sample_adata, sample_path):
+    """
+    Takes out peaks from the raw data and returns only the gene expressions
+    
+    Args:
+        sample_adata: unfiltered adata object
+        sample_path: path to the directory with the sample data
+        
+    Returns:
+        Cleaned AnnData object with only gene expressions
+    """
 
     # Try to locate the features file. It is usually named "features.tsv" or "genes.tsv"
     features_file = os.path.join(sample_path, "features.tsv.gz")
@@ -69,7 +79,12 @@ def filter_peaks(sample_adata, sample_path):
 
 
 def create_h5ad_for_samples(dataset_path):
-    """Process all samples and create h5ad files in a central directory if not already created"""
+    """
+    Process all samples and create h5ad files in a central directory if not already created
+
+    Args:
+        dataset_path: path to the directory with the data
+    """
 
     # Create central directory for h5ad files
     output_dir = os.path.join(dataset_path, "samples_h5ad_files")
@@ -115,6 +130,16 @@ def create_h5ad_for_samples(dataset_path):
                 print(f"Error processing {sample_name}: {str(e)} AND {str(sample_dir_error)}")
 
 def set_up_logger(logging_path, experiment_name):
+    """
+    Creates a logger for logging info, errors, and warnings
+    
+    Args:
+        logging_path: path to where the logger will be saved
+        experiment_name: name of the current experiment
+        
+    Returns:
+        A logger object to write to
+    """
 
     # Create timestamp for logger files
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -149,8 +174,14 @@ def set_up_logger(logging_path, experiment_name):
 
 def get_sample_h5ad_dict(samples_dataset_dir):
     """
-    get all h5ad files from the samples_h5ad_files directory
-    and return a dictionary mapping sample names to teh h5ad paths
+    Gets all h5ad files from the samples_h5ad_files directory
+    and return a dictionary mapping sample names to the h5ad paths
+
+    Args:
+        samples_dataset_dir: path to the samples_h5ad_files directory
+        
+    Returns:
+        A dictionary with format sample name -> AnnData object
     """
     # Path to the h5ad files directory
     h5ad_files_path = os.path.join(samples_dataset_dir, "samples_h5ad_files")
@@ -177,7 +208,8 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
         sample_file_dict: Dictionary mapping sample names to h5ad file paths
         samples_to_pick: List of sample names to include
         logger: Logger object for recording progress
-        output_path: Path to save the concatenated h5ad file
+        dataset_path: Path to the data
+        subset_name: Name to save the output to
         
     Returns:
         Concatenated AnnData object
@@ -279,7 +311,7 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Make sure all sata types are str for saving to h5ad
+    # Make sure all data types are str for saving to h5ad
     for col in adata.var.select_dtypes(include="object").columns:
         adata.var[col] = adata.var[col].astype(str)
     for col in adata.raw.var.select_dtypes(include="object").columns:
@@ -291,6 +323,20 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
     return adata
 
 def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_cores=1):
+    """
+    Runs PyViper to get protein activity data
+    
+    Args:
+        adata: Gene expression data to use as input gex_data
+        network: List of regulatory genes as a pyviper interactome
+        save_name: name to save the output as
+        new_data_dir: Path to the data
+        logger: logger object to write to
+        num_cores: number of cores available on your computer
+        
+    Returns:
+        AnnData object containing protein activity data
+    """
 
     logger.info("Running VIPER with only TFs and coTFs")
 
@@ -317,7 +363,21 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
 
     return vp_data
 
-def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False, prot_act_concat=None):
+def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False):
+    """
+    Concatenates two protein activity adata objects into one
+    
+    Args:
+        vp_data_sc: Protein activity adata object with scRNASeq data
+        vp_data_sn: Protein activity adata object with snRNASeq data
+        new_data_dir: Path to the data
+        save_name: name to save the output as
+        logger: logger object to write to
+        harmony: whether to run harmony batch correction on the concatenated adata
+        
+    Returns:
+        Concatenated AnnData object
+    """
 
     logger.info("Combining protein activity")
 
@@ -382,6 +442,18 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
     return vp_data
 
 def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
+    """
+    Converts protein activity data to human genes
+    
+    Args:
+        new_data_dir: Path to the data
+        save_name: name to save the output as
+        vp_data_full: Protein activity adata object containing data from the full dataset
+        logger: logger object to write to
+        
+    Returns:
+        AnnData Object with human genes
+    """
 
     logger.info("Human gene pathway analysis")
 
@@ -414,4 +486,108 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
     vp_cancer_hallmarks.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
-    return
+    return vp_cancer_hallmarks
+
+def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, logger):
+    """
+    Gets an object with the human gene pathway hallmarkers
+    
+    Args:
+        vp_data: Protein activity adata object containing data from the concatenated scRNASeq and snRNAseq data
+        sc_adata_ges: adata with gene expression data from scRNAseq
+        sn_adata_ges: adata with gene expression data from snRNAseq
+        new_data_dir: Path to the data
+        save_name: name to save the output as
+        logger: logger object to write to
+        
+    Returns:
+        AnnData Object with gene pathway hallmarkers
+    """
+
+    logger.info("Getting hallmarker data")
+
+    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        return sc.read_h5ad(output_path)
+
+    # Set the ar target genes
+    asangani_2014_ar_targets_genes_list = [
+        "ABCC4", "ABHD2", "ACSL3", "ADARB2", "AF349445", "AFF4", "AI089002", "AI207522", "AI570240", "AK023660", 
+        "AK025360", "AK055915", "AK057576", "AK074291", "AK092594", "AK093002", "AK098478", "AK124281", "AK124426", 
+        "AL533190", "AL713762", "ALDH1A3", "AMAC1L2", "ANKRD37", "ANXA2", "ARSG", "ASRGL1", "ATP10A", "ATP1A1", 
+        "ATP1A4", "ATRNL1", "AUTS2", "AW029229", "AW389914", "AZGP1", "B3GAT1", "BC039021", "BC041926", "BC041955", 
+        "BC055421", "BC062780", "BG462058", "BG618474", "BI710972", "BM469851", "BMPR1B", "BQ017638", "BQ706262", 
+        "BRP44", "BU567141", "BU753102", "BX099483", "C10orf114", "C14orf162", "C16orf30", "C18orf1", "C1orf108", 
+        "C1orf113", "C1orf26", "C20orf112", "C6orf81", "CA314451", "CA414006", "CBLL1", "CCDC4", "CDC14B", "CDC14C", 
+        "CDYL2", "CEBPD", "CENPN", "ChGn", "CHIA", "CHKA", "CHST2", "CLDN12", "CLDN14", "CLDN8", "CTBP1", "CUTL2", 
+        "CXorf9", "CYP1A1", "CYP2U1", "DDR2", "DHCR24", "DKFZp761P0423", "DNAJB9", "DOCK11", "DOCK8", "EAF2", "EDG7", 
+        "ELL2", "ELOVL5", "ELOVL7", "EMP1", "ENDOD1", "ENST00000358356", "ERN1", "ERRFI1", "F2RL1", "FAM13A1OS", 
+        "FER1L3", "FGD4", "FKBP5", "FLJ31568", "FLJ39502", "FRK", "FZD5", "GADD45G", "GIPR", "GREB1", "GSR", "HERC3", 
+        "HLA-DRB3", "HOMER2", "HPGD", "HS3ST4", "HSD17B2", "IFI6", "IGF1", "IGF1R", "IL20RA", "IMPAD1", "INPP4B", 
+        "KCNMA1", "KLF15", "KLK3", "KLK4", "KLK5", "KRT18", "KRT19", "KRT72", "LAMA1", "LDLR", "LIFR", "LOC205251", 
+        "LOC401708", "LOC641467", "LOC646282", "LOC730498", "LONRF1", "LOX", "LRCH1", "LRIG1", "LSS", "MAF", "MAK", 
+        "MALT1", "MAP1B", "MAP7D1", "MBOAT2", "MFSD2", "MICAL1", "MLPH", "MOGAT2", "MPZL1", "MTMR9", "NANOGP1", 
+        "NAT1", "NCAPD3", "NDFIP2", "NDRG1", "NEBL", "NEK10", "NFKBIA", "NNMT", "NR4A1", "NY-REN-7", "ODC1", "OLAH", 
+        "ORM1", "ORM2", "OTUD7B", "PACS1", "PDLIM5", "PECI", "PER1", "PFKFB2", "PGC", "PHACTR3", "PNPLA8", "PPP2CB", 
+        "RAB27A", "RAB4A", "RASD1", "RHOU", "RUNX1", "S100A5", "SCRG1", "SGK", "SHROOM3", "SLC16A6", "SLC26A2", 
+        "SLC26A3", "SLC2A14", "SLC2A3", "SLC38A4", "SLC41A1", "SLC45A3", "SLITRK6", "SMC4", "SMOC1", "SNAI2", 
+        "SNTG2", "SOCS2", "SPDEF", "SPDYA", "SPINK5L3", "SPOCK1", "SPTB", "ST6GALNAC1", "STEAP4", "STK17B", "TACC1", 
+        "TBRG1", "TBX15", "TG", "TGFB2", "TIPARP", "TLOC1", "TMCC3", "TMPRSS2", "TNFAIP3", "TPD52", "TRIM36", "TRIM63", 
+        "TTN", "TUBA3D", "WIPI1", "WNT7B", "WWTR1", "X03757", "ZBTB1", "ZBTB16", "ZBTB24"
+    ]
+
+    sc_adata_ges.obs["RFP"] = [ 1 if i > 0 else 0 for i in sc_adata_ges[:,"addgene26001"].X ]
+    sc_adata_ges.obs["RFP_int"] = sc_adata_ges.obs["RFP"]
+    sc_adata_ges.obs["RFP"] = sc_adata_ges.obs["RFP"].astype("category")
+
+    # Concatenate the gene expressions
+    adata_ges = sc_adata_ges.concatenate(
+        sn_adata_ges,
+        batch_categories=["scRNASeq","snRNASeq"],
+        batch_key="technology",
+        uns_merge="unique",
+        join='outer',
+        fill_value=0
+    )
+
+    adata_ges.obs = adata_ges.obs.join( vp_data.obs  , lsuffix = "_ges" )
+
+    # Create the interactome for the pyviper run
+    df = pd.DataFrame()
+    df['regulator'] = ['AR_Asangani_2014'] * len(asangani_2014_ar_targets_genes_list)
+    df['target'] = asangani_2014_ar_targets_genes_list
+    df['mor'] = 1
+    df['likelihood'] = 1
+    asangani_interactome = pyviper.Interactome(net_table=df,name="asangani-2024")
+
+    adata_ges_human = copy.deepcopy(adata_ges)
+
+    # Keep only snRNASeq cells
+    batch = ['snRNASeq']
+    cells_to_keep = [True if x in batch else False for x in adata_ges_human.obs.technology]
+    adata_ges_human = adata_ges_human[cells_to_keep]
+
+    # Translate from mouse to hhuman symbols
+    pyviper.pp.translate(adata_ges_human, desired_format = "human_symbol")
+    asangani_interactome.filter_targets(adata_ges_human.var_names)
+
+    # Run Pyviper
+    adata_enr = pyviper.viper( adata_ges_human , asangani_interactome , enrichment="area" , eset_filter = False , verbose = False)
+
+    # Make sure all data types are str for saving to h5ad
+    for col in adata_enr.obs.select_dtypes(include="object").columns:
+        adata_enr.obs[col] = adata_enr.obs[col].astype(str)
+    for col in adata_enr.var.select_dtypes(include="object").columns:
+        adata_enr.var[col] = adata_enr.var[col].astype(str)
+    # Remove gex_data so it can save
+    adata_enr.uns.pop('gex_data', None)
+
+    adata_enr.write(output_path)
+    print(f"Successfully saved protein activity data to {output_path}")
+
+    return adata_enr
