@@ -1,7 +1,6 @@
 import pandas as pd
 import scanpy as sc
 import os
-import gc
 import pyviper
 import matplotlib
 import warnings
