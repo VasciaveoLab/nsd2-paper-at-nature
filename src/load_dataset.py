@@ -41,7 +41,7 @@ def main():
     # Get each of the h5ad file paths and save to a dict with sample_id as key
     sample_file_dict = get_sample_h5ad_dict(new_data_dir)
 
-    # Load all the h5ad files for the samples and concat
+    # Load all the h5ad files for the samples and concatenate them into anndata objects
     sc_samples = ["MJ002", "MJ004", "MJ005", "MJ007", "MJ008", "MJ014", "MJ015"]
     sc_adata_name = "adata_scRNASeq.h5ad"
     sc_adata = load_concat_adata(sample_file_dict, sc_samples, logger, new_data_dir, sc_adata_name)
@@ -61,19 +61,22 @@ def main():
     network_interactome_tfs_cotfs_pruned = copy.deepcopy(network_interactome_full)
     network_interactome_full_pruned = network_interactome_full
 
+    # Get the regulators of TFs and coTFs from pyviper
     tf_list = pyviper.load.TFs(species="mouse")
     cotf_list = pyviper.load.coTFs(species="mouse")
 
     network_interactome_tfs_cotfs_pruned.filter_regulators( regulators_keep = tf_list + cotf_list + ["Chga","Vim"] , )
 
-    network_interactome_tfs_cotfs_pruned.prune(max_targets=50,eliminate=True) # prune interactome to have exactly 50 targets
-    network_interactome_full_pruned.prune(max_targets=50,eliminate=True) # prune interactome to have exactly 50 targets
+    # Prune interactomes to have exactly 50 targets
+    network_interactome_tfs_cotfs_pruned.prune(max_targets=50,eliminate=True)
+    network_interactome_full_pruned.prune(max_targets=50,eliminate=True)
 
     logger.info(">>> >> Pruning Network with max_targets=50,eliminate=True and regulators_keep = tf_list + cotf_list ")
 
     print(network_interactome_tfs_cotfs_pruned.size())
     print(network_interactome_full_pruned.size())
 
+    # Get protein activity for scRNASeq data
     print("Running pyviper on sc...")
     sc_prot_act_name = "sc_prot_act_pruned.h5ad"
     sc_prot_act = get_protein_activity(sc_adata, network_interactome_tfs_cotfs_pruned, sc_prot_act_name, new_data_dir, logger, num_cores=n_cores)
@@ -82,6 +85,7 @@ def main():
     sc_prot_act_full_name = "sc_prot_act_full_pruned.h5ad"
     sc_prot_act_full = get_protein_activity(sc_adata, network_interactome_full_pruned, sc_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
 
+    # Get protein activity for snRNASeq data
     print("Running pyviper on sn...")
     sn_prot_act_name = "sn_prot_act_pruned.h5ad"
     sn_prot_act = get_protein_activity(sn_adata, network_interactome_tfs_cotfs_pruned, sn_prot_act_name, new_data_dir, logger, num_cores=n_cores)
@@ -90,7 +94,7 @@ def main():
     sn_prot_act_full_name = "sn_prot_act_full_pruned.h5ad"
     sn_prot_act_full = get_protein_activity(sn_adata, network_interactome_full_pruned, sn_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
     
-    # Concatenate the protein activity data if not already created
+    # Concatenate the protein activity data from scRNAseq and snRNAseq into one anndata
     sc_adata.obs["RFP"] = [ 1 if i > 0 else 0 for i in sc_adata[:,"addgene26001"].X ]
     sc_adata.obs["RFP_int"] = sc_adata.obs["RFP"]
     sc_adata.obs["RFP"] = sc_adata.obs["RFP"].astype("category")
@@ -100,12 +104,15 @@ def main():
     sc_prot_act_full.obs = sc_adata.obs.join( sc_prot_act_full.obs , rsuffix="_pas")
     sn_prot_act_full.obs = sn_adata.obs.join( sn_prot_act_full.obs , rsuffix="_pas")
 
+    # Concatenate the ones with reulators from TFs and coTFs
     combined_prot_act_name = "prot_act_concatenated.h5ad"
     prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
 
+    # Concatenate the ones with all regulators
     combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
     prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger) 
 
+    # Convert the protein activity to human genes
     human_prot_act_name = "human_prot_act.h5ad"
     human_vp_conversion(new_data_dir, human_prot_act_name, prot_act_full_concat, logger)
 

@@ -1,6 +1,8 @@
 # NSD2 Paper at Nature
 
-### A reproducible pipeline to load, process, and visualize NSD2 gene expression and protein activity data for the Nature paper submission.
+## NSD2 targeting reverses lineage plasticity and drug resistance in advanced prostate cancer
+
+### This code is used to reproduce the results in the manuscript [here](https://www.biorxiv.org/content/10.1101/2023.07.18.549585v1.article-info)
 
 ![Diffusion Map Leiden](assets/diffmap_scRNASeq.png)
 
@@ -68,3 +70,18 @@ Follow these two main steps to reproduce the data files and figures:
 
   - Reads processed data from `base_path`.
   - Generates manuscript figures (e.g., DiffMaps, heatmaps, Dotplots).
+
+
+## Contacts
+
+For any info or queries please write to Alessandro Vasciaveo(avasciaveo@sbpdiscovery.org)
+
+## License
+This code is distributed under a MIT License (see [LICENSE](LICENSE)).
+
+## Citation
+If you used this work in your publication, please cite our work here:
+
+Li, J. J. et al. NSD2 maintains lineage plasticity and castration-resistance in neuroendocrine prostate cancer. bioRxiv (2023). doi:10.1101/2023.07.18.549585 
+
+Manuscript in review

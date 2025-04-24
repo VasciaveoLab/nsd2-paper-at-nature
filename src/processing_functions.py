@@ -27,7 +27,7 @@ def filter_peaks(sample_adata, sample_path):
         Cleaned AnnData object with only gene expressions
     """
 
-    # Try to locate the features file. It is usually named "features.tsv" or "genes.tsv"
+    # Try to locate the features file. It is named either "features.tsv.gz" or "genes.tsv"
     features_file = os.path.join(sample_path, "features.tsv.gz")
     if os.path.exists(features_file):
         df_features = pd.read_csv(features_file, sep="\t", header=None, compression="gzip")
@@ -65,6 +65,7 @@ def filter_peaks(sample_adata, sample_path):
                 else:
                     mask.append(False)
             
+            # Apply the masking
             sample_adata = sample_adata[:, mask].copy()
             
             # Report retention statistics
@@ -107,6 +108,7 @@ def create_h5ad_for_samples(dataset_path):
         # Path to 10x data
         filtered_feature_path = os.path.join(sample_dir, "filtered_feature_bc_matrix")
         
+        # Data is either in filtered_feature_bc_matrix or in the directory itself, so check both
         try:
             # Read 10x data and save as h5ad
             adata = sc.read_10x_mtx(filtered_feature_path)
@@ -149,6 +151,7 @@ def set_up_logger(logging_path, experiment_name):
         os.makedirs(logging_path)
         print(f"Created logging directory: {logging_path}")
 
+    # Create the log file
     file = os.path.join(logging_path , f"{experiment_name}-log-{timestamp}.txt")
     with open(file, 'w') as f:
         sc.logging.print_versions()
@@ -160,13 +163,9 @@ def set_up_logger(logging_path, experiment_name):
     # create formatter
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S')
     # create console handler and set level to debug
-    # ch = logging.StreamHandler()
     fh = logging.FileHandler( os.path.join(logging_path, experiment_name + "-log.txt") , mode='w')
-    # ch.setLevel(logging.DEBUG)
     fh.setLevel(logging.DEBUG)
-    # ch.setFormatter(formatter)
     fh.setFormatter(formatter)
-    # logger.addHandler(ch)
     logger.addHandler(fh)
 
     logger.info("-------------- [START OF ANALYSIS] --------------")
@@ -220,6 +219,7 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
 
     output_path = os.path.join(output_dir, subset_name)
 
+    # Check if the file already exists
     if os.path.exists(output_path):
         print(f"Output file {output_path} already exists. Loading existing file...")
         return sc.read_h5ad(output_path)
@@ -386,11 +386,12 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
 
     output_path = os.path.join(output_dir, save_name)
 
+    # Check if the output file is already there
     if os.path.exists(output_path):
         print(f"Output file {output_path} already exists. Loading existing file...")
         return sc.read_h5ad(output_path)
 
-    # This is the data for the vast majority of the analysis
+    # Concatenate the two AnnDatas
     vp_data = vp_data_sc.concatenate(
         vp_data_sn,
         batch_categories=["scRNASeq","snRNASeq"],
@@ -432,10 +433,11 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
         logger.info(">>> >> Cluster Analysis wiht Leiden | Solution from ACDC | knn=%s , PC=%s , resolution=%s , seed=%s" , n_neighbors , n_pcs , resolution, seed_from_acdc)
         vp_data.obs['leiden_pas'].cat.categories
 
-    # Make sure all sata types are str for saving to h5ad
+    # Make sure all data types are str for saving to h5ad
     for col in vp_data.obs.select_dtypes(include="object").columns:
         vp_data.obs[col] = vp_data.obs[col].astype(str)
 
+    # Save the concatenated data
     vp_data.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
@@ -462,16 +464,18 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
 
     output_path = os.path.join(output_dir, save_name)
 
+    # Check if the output file is already there
     if os.path.exists(output_path):
         print(f"Output file {output_path} already exists. Loading existing file...")
-        return
+        return vp_cancer_hallmarks
 
+    # Translate to human gene symbols
     logger.info(">>> >> Using VP Data with SIG and SURF for Pathway Analysis")
     vp_data_human = copy.deepcopy(vp_data_full)
     pyviper.pp.translate(vp_data_human, desired_format = "human_symbol")
 
+    # Load regulons and run viper
     MSigDB_H_Pathways_regulon = pyviper.load.msigdb_regulon("h")
-    # MSigDB_H_Pathways_regulon.filter_targets(vp_data_human.var_names)
     vp_cancer_hallmarks = pyviper.viper( gex_data=vp_data_human , interactome=MSigDB_H_Pathways_regulon , enrichment="area" , 
                                         min_targets=10,
                                         output_as_anndata=True , njobs=8 , verbose=False )
@@ -483,6 +487,7 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
     for col in vp_cancer_hallmarks.obs.select_dtypes(include="object").columns:
         vp_cancer_hallmarks.obs[col] = vp_cancer_hallmarks.obs[col].astype(str)
 
+    # Write the output file
     vp_cancer_hallmarks.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
@@ -511,6 +516,7 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
 
     output_path = os.path.join(output_dir, save_name)
 
+    # Check if the output file is already created
     if os.path.exists(output_path):
         print(f"Output file {output_path} already exists. Loading existing file...")
         return sc.read_h5ad(output_path)
@@ -587,6 +593,7 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
     # Remove gex_data so it can save
     adata_enr.uns.pop('gex_data', None)
 
+    # Save the AnnData object
     adata_enr.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
