@@ -28,7 +28,7 @@ def main():
 
     # Set the directories
     experiment_name = "nsd2-paper-experiment"
-    new_data_dir = "/shares/vasciaveo_lab/data/nepc_organoid_project/new_data/"
+    data_dir = "/shares/vasciaveo_lab/data/nepc_organoid_project/new_data/"
     logging_path = "logs/"
 
     # set up logging
@@ -36,24 +36,24 @@ def main():
     logger = set_up_logger(logging_path, experiment_name)
 
     # Read the 10x data and save h5ad files for each sample in the new-data/samples_h5ad_files directory
-    create_h5ad_for_samples(new_data_dir)
+    create_h5ad_for_samples(data_dir)
 
     # Get each of the h5ad file paths and save to a dict with sample_id as key
-    sample_file_dict = get_sample_h5ad_dict(new_data_dir)
+    sample_file_dict = get_sample_h5ad_dict(data_dir)
 
     # Load all the h5ad files for the samples and concatenate them into anndata objects
     sc_samples = ["MJ002", "MJ004", "MJ005", "MJ007", "MJ008", "MJ014", "MJ015"]
     sc_adata_name = "adata_scRNASeq.h5ad"
-    sc_adata = load_concat_adata(sample_file_dict, sc_samples, logger, new_data_dir, sc_adata_name)
+    sc_adata = load_concat_adata(sample_file_dict, sc_samples, logger, data_dir, sc_adata_name)
 
     sn_samples = ["MJ018", "MJ019", "MJ020", "MJ021", "MJ022", "MJ023", "MJ024", "MJ025"]
     sn_adata_name = "adata_snRNASeq.h5ad"
-    sn_adata = load_concat_adata(sample_file_dict, sn_samples, logger, new_data_dir, sn_adata_name)
+    sn_adata = load_concat_adata(sample_file_dict, sn_samples, logger, data_dir, sn_adata_name)
 
 
     # Run pyviper to get protein activity data
     print("Inferring protein activity data...")
-    network_path = os.path.join(new_data_dir, 'networks/MJ-02-04-05-07-metacells-with-chga-merged.tsv')
+    network_path = os.path.join(data_dir, 'networks/MJ-02-04-05-07-metacells-with-chga-merged.tsv')
     aracne_network = pd.read_csv(network_path, delimiter="\t")
     network_interactome_full = pyviper.Interactome('organoids-network', aracne_network) # convert to class Interactome
 
@@ -79,20 +79,20 @@ def main():
     # Get protein activity for scRNASeq data
     print("Running pyviper on sc...")
     sc_prot_act_name = "sc_prot_act_pruned.h5ad"
-    sc_prot_act = get_protein_activity(sc_adata, network_interactome_tfs_cotfs_pruned, sc_prot_act_name, new_data_dir, logger, num_cores=n_cores)
+    sc_prot_act = get_protein_activity(sc_adata, network_interactome_tfs_cotfs_pruned, sc_prot_act_name, data_dir, logger, num_cores=n_cores)
 
     print("Running pyviper on sc with full interactome...")
     sc_prot_act_full_name = "sc_prot_act_full_pruned.h5ad"
-    sc_prot_act_full = get_protein_activity(sc_adata, network_interactome_full_pruned, sc_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
+    sc_prot_act_full = get_protein_activity(sc_adata, network_interactome_full_pruned, sc_prot_act_full_name, data_dir, logger, num_cores=n_cores)
 
     # Get protein activity for snRNASeq data
     print("Running pyviper on sn...")
     sn_prot_act_name = "sn_prot_act_pruned.h5ad"
-    sn_prot_act = get_protein_activity(sn_adata, network_interactome_tfs_cotfs_pruned, sn_prot_act_name, new_data_dir, logger, num_cores=n_cores)
+    sn_prot_act = get_protein_activity(sn_adata, network_interactome_tfs_cotfs_pruned, sn_prot_act_name, data_dir, logger, num_cores=n_cores)
 
     print("Running pyviper on sn with full interactome...")
     sn_prot_act_full_name = "sn_prot_act_full_pruned.h5ad"
-    sn_prot_act_full = get_protein_activity(sn_adata, network_interactome_full_pruned, sn_prot_act_full_name, new_data_dir, logger, num_cores=n_cores)
+    sn_prot_act_full = get_protein_activity(sn_adata, network_interactome_full_pruned, sn_prot_act_full_name, data_dir, logger, num_cores=n_cores)
     
     # Concatenate the protein activity data from scRNAseq and snRNAseq into one anndata
     sc_adata.obs["RFP"] = [ 1 if i > 0 else 0 for i in sc_adata[:,"addgene26001"].X ]
@@ -106,18 +106,19 @@ def main():
 
     # Concatenate the ones with reulators from TFs and coTFs
     combined_prot_act_name = "prot_act_concatenated.h5ad"
-    prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, new_data_dir, combined_prot_act_name, logger, harmony=True) 
+    prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, data_dir, combined_prot_act_name, logger, harmony=True) 
 
     # Concatenate the ones with all regulators
     combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
-    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, new_data_dir, combined_prot_act_full_name, logger) 
+    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, data_dir, combined_prot_act_full_name, logger) 
 
-    # Convert the protein activity to human genes
-    human_prot_act_name = "human_prot_act.h5ad"
-    human_vp_conversion(new_data_dir, human_prot_act_name, prot_act_full_concat, logger)
+    # Convert the protein activity to human genes and msigdb regulons
+    msigdb_prot_act_name = "msigdb_prot_act.h5ad"
+    get_msigdb_vp(data_dir, msigdb_prot_act_name, prot_act_full_concat, logger)
 
-    adata_anr_name = "human_adata_anr.h5ad"
-    get_adata_anr(prot_act_concat, sc_adata, sn_adata, new_data_dir, adata_anr_name, logger)
+    # Canvert the adata to human genes and asanagi regulons
+    asanagi_prot_act_name = "asanagi_prot_act_anr.h5ad"
+    get_adata_anr(prot_act_concat, sc_adata, sn_adata, data_dir, asanagi_prot_act_name, logger)
 
 if __name__ == '__main__':
     main()

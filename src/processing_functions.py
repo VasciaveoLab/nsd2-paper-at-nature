@@ -443,7 +443,7 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
 
     return vp_data
 
-def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
+def get_msigdb_vp(new_data_dir, save_name, vp_data_full, logger):
     """
     Converts protein activity data to human genes
     
@@ -454,10 +454,10 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
         logger: logger object to write to
         
     Returns:
-        AnnData Object with human genes
+        AnnData Object with human genes and msigdb regulon
     """
 
-    logger.info("Human gene pathway analysis")
+    logger.info("Human gene pathway analysis msigbd")
 
     output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
@@ -467,7 +467,7 @@ def human_vp_conversion(new_data_dir, save_name, vp_data_full, logger):
     # Check if the output file is already there
     if os.path.exists(output_path):
         print(f"Output file {output_path} already exists. Loading existing file...")
-        return vp_cancer_hallmarks
+        return sc.read_h5ad(output_path)
 
     # Translate to human gene symbols
     logger.info(">>> >> Using VP Data with SIG and SURF for Pathway Analysis")
@@ -583,18 +583,60 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
     asangani_interactome.filter_targets(adata_ges_human.var_names)
 
     # Run Pyviper
-    adata_enr = pyviper.viper( adata_ges_human , asangani_interactome , enrichment="area" , eset_filter = False , verbose = False)
+    asanagi_prot_act_enr = pyviper.viper( adata_ges_human , asangani_interactome , enrichment="area" , eset_filter = False , verbose = False)
 
     # Make sure all data types are str for saving to h5ad
-    for col in adata_enr.obs.select_dtypes(include="object").columns:
-        adata_enr.obs[col] = adata_enr.obs[col].astype(str)
-    for col in adata_enr.var.select_dtypes(include="object").columns:
-        adata_enr.var[col] = adata_enr.var[col].astype(str)
+    for col in asanagi_prot_act_enr.obs.select_dtypes(include="object").columns:
+        asanagi_prot_act_enr.obs[col] = asanagi_prot_act_enr.obs[col].astype(str)
+    for col in asanagi_prot_act_enr.var.select_dtypes(include="object").columns:
+        asanagi_prot_act_enr.var[col] = asanagi_prot_act_enr.var[col].astype(str)
     # Remove gex_data so it can save
-    adata_enr.uns.pop('gex_data', None)
+    asanagi_prot_act_enr.uns.pop('gex_data', None)
 
     # Save the AnnData object
-    adata_enr.write(output_path)
+    asanagi_prot_act_enr.write(output_path)
     print(f"Successfully saved protein activity data to {output_path}")
 
-    return adata_enr
+    return asanagi_prot_act_enr
+
+def get_ar_vp(new_data_dir, save_name, vp_data_full, ar_targets_pathways_path, logger):
+    """
+    Converts protein activity data to human genes
+    
+    Args:
+        new_data_dir: Path to the data
+        save_name: name to save the output as
+        vp_data_full: Protein activity adata object containing data from the full dataset
+        logger: logger object to write to
+        
+    Returns:
+        AnnData Object with human genes and ar pathways
+    """
+
+    logger.info("Human gene pathway analysis")
+
+    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    # Check if the output file is already there
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        return sc.read_h5ad(output_path)
+
+    # Translate to human gene symbols
+    logger.info(">>> >> Using VP Data with SIG and SURF for Pathway Analysis")
+    vp_data_human = copy.deepcopy(vp_data_full)
+    pyviper.pp.translate(vp_data_human, desired_format = "human_symbol")
+
+    # Read the ar target pathways as interactomes
+    ar_targets_pathways_path = '~/Clouds/Dropbox/Data/mouse-organoids/gene-sets/ar-and-nepc-regulons-new-4-sets.csv'
+    ar_targets_pathways = pd.read_csv(ar_targets_pathways_path, delimiter="\t")
+
+    MSigDB_H_Pathways_regulon = pyviper.load.msigdb_regulon("h")
+    androgen_signaling_table = MSigDB_H_Pathways_regulon.net_table[MSigDB_H_Pathways_regulon.net_table['regulator'] == 'HALLMARK_ANDROGEN_RESPONSE']
+
+    ar_targets_pathways = pd.concat([ar_targets_pathways, androgen_signaling_table], axis=0, ignore_index=True)
+
+    ar_pathways_regulons = pyviper.Interactome(  net_table=ar_targets_pathways , name="AR-pathways" )
