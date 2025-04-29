@@ -7,6 +7,7 @@ import datetime
 import numpy as np
 import scvelo as scv
 import pandas as pd
+import acdc_py as acdc
 from scipy.stats import norm
 import pyviper
 import copy
@@ -322,7 +323,7 @@ def load_concat_adata(sample_file_dict, samples_to_pick, logger, dataset_path, s
 
     return adata
 
-def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_cores=1):
+def get_protein_activity(adata, network, save_name, data_dir, logger, num_cores=1):
     """
     Runs PyViper to get protein activity data
     
@@ -330,7 +331,7 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
         adata: Gene expression data to use as input gex_data
         network: List of regulatory genes as a pyviper interactome
         save_name: name to save the output as
-        new_data_dir: Path to the data
+        data_dir: Path to the data
         logger: logger object to write to
         num_cores: number of cores available on your computer
         
@@ -340,7 +341,7 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
 
     logger.info("Running VIPER with only TFs and coTFs")
 
-    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, save_name)
@@ -363,15 +364,16 @@ def get_protein_activity(adata, network, save_name, new_data_dir, logger, num_co
 
     return vp_data
 
-def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, harmony=False):
+def concat_prot_act(vp_data_sc, vp_data_sn, data_dir, save_name, revised_info_xlsx, logger, harmony=False):
     """
     Concatenates two protein activity adata objects into one
     
     Args:
         vp_data_sc: Protein activity adata object with scRNASeq data
         vp_data_sn: Protein activity adata object with snRNASeq data
-        new_data_dir: Path to the data
+        data_dir: Path to the data
         save_name: name to save the output as
+        revised_info_xlsx: Path to a .xlsx file containing revised info about the single cell dataset
         logger: logger object to write to
         harmony: whether to run harmony batch correction on the concatenated adata
         
@@ -381,7 +383,7 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
 
     logger.info("Combining protein activity")
 
-    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, save_name)
@@ -403,7 +405,7 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
     print(f"Combined vp_data shape: {vp_data.shape}")
 
     logger.info(">>> >> Adding new sample nomenclature for the paper")
-    df = pd.read_excel(os.path.join(new_data_dir, "Single cell dataset info-use-revised-nature-rebuttal.xlsx"),skiprows=1)
+    df = pd.read_excel(revised_info_xlsx,skiprows=1)
     df.rename(columns={"Name":"sample_id_for_paper","sc-RNA-seq ID":"sample_id"},inplace=True)
     df.set_index("sample_id",inplace=True)
     vp_data.obs = vp_data.obs.join( df , on="sample_id" )
@@ -416,23 +418,6 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
         sc.tl.pca(vp_data, svd_solver='arpack', random_state=my_random_seed)
         sc.external.pp.harmony_integrate(vp_data, basis="X_pca" , key='technology', random_state=my_random_seed)
 
-        ## 3 Cluster Solution
-        n_pcs = 50
-        n_neighbors=9
-        resolution = 0.06
-        seed_from_acdc = 1
-
-        logger.info(">>> >> Computing Nearest Neighbors with n=%s and total PCs=%s" , n_neighbors , n_pcs)
-        
-        sc.pp.neighbors(vp_data, n_neighbors=n_neighbors, n_pcs=n_pcs,
-                        use_rep="X_pca_harmony",
-                        random_state=seed_from_acdc)
-
-        logger.info(">>> >> Cluster Analysis wiht Leiden ...")
-        sc.tl.leiden(vp_data, random_state=seed_from_acdc, resolution=resolution, key_added="leiden_pas")
-        logger.info(">>> >> Cluster Analysis wiht Leiden | Solution from ACDC | knn=%s , PC=%s , resolution=%s , seed=%s" , n_neighbors , n_pcs , resolution, seed_from_acdc)
-        vp_data.obs['leiden_pas'].cat.categories
-
     # Make sure all data types are str for saving to h5ad
     for col in vp_data.obs.select_dtypes(include="object").columns:
         vp_data.obs[col] = vp_data.obs[col].astype(str)
@@ -443,12 +428,12 @@ def concat_prot_act(vp_data_sc, vp_data_sn, new_data_dir, save_name, logger, har
 
     return vp_data
 
-def get_msigdb_vp(new_data_dir, save_name, vp_data_full, logger):
+def get_msigdb_vp(data_dir, save_name, vp_data_full, logger):
     """
     Converts protein activity data to human genes
     
     Args:
-        new_data_dir: Path to the data
+        data_dir: Path to the data
         save_name: name to save the output as
         vp_data_full: Protein activity adata object containing data from the full dataset
         logger: logger object to write to
@@ -459,7 +444,7 @@ def get_msigdb_vp(new_data_dir, save_name, vp_data_full, logger):
 
     logger.info("Human gene pathway analysis msigbd")
 
-    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, save_name)
@@ -493,7 +478,7 @@ def get_msigdb_vp(new_data_dir, save_name, vp_data_full, logger):
 
     return vp_cancer_hallmarks
 
-def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, logger):
+def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, data_dir, save_name, logger):
     """
     Gets an object with the human gene pathway hallmarkers
     
@@ -501,7 +486,7 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
         vp_data: Protein activity adata object containing data from the concatenated scRNASeq and snRNAseq data
         sc_adata_ges: adata with gene expression data from scRNAseq
         sn_adata_ges: adata with gene expression data from snRNAseq
-        new_data_dir: Path to the data
+        data_dir: Path to the data
         save_name: name to save the output as
         logger: logger object to write to
         
@@ -511,7 +496,7 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
 
     logger.info("Getting hallmarker data")
 
-    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, save_name)
@@ -599,14 +584,15 @@ def get_adata_anr(vp_data, sc_adata_ges, sn_adata_ges, new_data_dir, save_name, 
 
     return asanagi_prot_act_enr
 
-def get_ar_vp(new_data_dir, save_name, vp_data_full, ar_targets_pathways_path, logger):
+def get_ar_vp(data_dir, save_name, vp_data_full, ar_targets_pathways_path, logger):
     """
-    Converts protein activity data to human genes
+    Converts protein activity data to human genes and runs viper on ar pathways
     
     Args:
-        new_data_dir: Path to the data
+        data_dir: Path to the data
         save_name: name to save the output as
         vp_data_full: Protein activity adata object containing data from the full dataset
+        ar_targets_pathways_path: Path to the ar targets csv file
         logger: logger object to write to
         
     Returns:
@@ -615,7 +601,7 @@ def get_ar_vp(new_data_dir, save_name, vp_data_full, ar_targets_pathways_path, l
 
     logger.info("Human gene pathway analysis")
 
-    output_dir = os.path.join(new_data_dir, "pyviper_h5ad_outputs")
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, save_name)
@@ -631,7 +617,6 @@ def get_ar_vp(new_data_dir, save_name, vp_data_full, ar_targets_pathways_path, l
     pyviper.pp.translate(vp_data_human, desired_format = "human_symbol")
 
     # Read the ar target pathways as interactomes
-    ar_targets_pathways_path = '~/Clouds/Dropbox/Data/mouse-organoids/gene-sets/ar-and-nepc-regulons-new-4-sets.csv'
     ar_targets_pathways = pd.read_csv(ar_targets_pathways_path, delimiter="\t")
 
     MSigDB_H_Pathways_regulon = pyviper.load.msigdb_regulon("h")
@@ -640,3 +625,74 @@ def get_ar_vp(new_data_dir, save_name, vp_data_full, ar_targets_pathways_path, l
     ar_targets_pathways = pd.concat([ar_targets_pathways, androgen_signaling_table], axis=0, ignore_index=True)
 
     ar_pathways_regulons = pyviper.Interactome(  net_table=ar_targets_pathways , name="AR-pathways" )
+
+    prot_act_nepc_ar = pyviper.viper( gex_data=vp_data_human , interactome=ar_pathways_regulons , enrichment="area" , 
+                                        min_targets=10, output_as_anndata=True , njobs=8 , verbose=False )
+
+    # Make sure all data types are str for saving to h5ad
+    for col in prot_act_nepc_ar.obs.select_dtypes(include="object").columns:
+        prot_act_nepc_ar.obs[col] = prot_act_nepc_ar.obs[col].astype(str)
+    for col in prot_act_nepc_ar.var.select_dtypes(include="object").columns:
+        prot_act_nepc_ar.var[col] = prot_act_nepc_ar.var[col].astype(str)
+
+    # Save the AnnData object
+    prot_act_nepc_ar.write(output_path)
+    print(f"Successfully saved protein activity data to {output_path}")
+
+    return prot_act_nepc_ar
+
+def get_acdc_clusters(data_dir, save_name, prot_act, logger, num_jobs):
+    """Run ACDC clustering algorithm and save results.
+    
+    Args:
+        prot_act (AnnData): AnnData object to cluster
+        data_dir (str): Directory to save output files
+        base_protact_file (str): Basename of the protact file
+    
+    Returns:
+        AnnData: The input AnnData object with clustering results added
+    """
+
+    logger.info("Running ACDC clustering...")
+
+    output_dir = os.path.join(data_dir, "pyviper_h5ad_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, save_name)
+
+    # Check if the output file is already there
+    if os.path.exists(output_path):
+        print(f"Output file {output_path} already exists. Loading existing file...")
+        best = pd.read_csv(output_path, index_col=0)
+        # convert back to a series
+        return best.iloc[:, 0]
+    
+    # Set ACDC configuration
+    acdc.config.set_clust_alg(clust_alg='Louvain')
+    acdc.config.set_corr_distance_dtype(dtype=np.float64)
+    
+    # Run grid search to calculate the ideal params for clustering
+    acdc.GS(
+        prot_act,
+        reduction_slot="X_pca_harmony",
+        metrics=['sil_mean', 'sil_mean_median'],
+        opt_metric="sil_mean_median",
+        njobs=num_jobs,
+        NN_vector=np.arange(5, 95, step=3),
+        res_vector=np.arange(0.05, 1.0, step=0.05),
+        approx_size=10000,
+        dist_slot=None,
+        key_added="clusters",
+        seed=my_random_seed
+    )
+
+    # Get optimal clustering
+    best_params = acdc.get_opt.GS_metric_search_data(
+        prot_act,
+        opt_metric='sil_mean_median',          # same metric you optimized
+        opt_metric_dir='max'                   # pick the maximum of that metric
+    )
+
+    best_params.to_csv(output_path, header=True)
+    print(f"Saved the parameters to {output_path}")
+    return best_params

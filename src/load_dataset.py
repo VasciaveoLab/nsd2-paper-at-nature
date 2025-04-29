@@ -106,19 +106,29 @@ def main():
 
     # Concatenate the ones with reulators from TFs and coTFs
     combined_prot_act_name = "prot_act_concatenated.h5ad"
-    prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, data_dir, combined_prot_act_name, logger, harmony=True) 
+    revised_info_xlsx = os.path.join(data_dir, "Single cell dataset info-use-revised-nature-rebuttal.xlsx")
+    prot_act_concat = concat_prot_act(sc_prot_act, sn_prot_act, data_dir, combined_prot_act_name, revised_info_xlsx, logger, harmony=True) 
 
     # Concatenate the ones with all regulators
     combined_prot_act_full_name = "prot_act_full_concatenated.h5ad"
-    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, data_dir, combined_prot_act_full_name, logger) 
+    prot_act_full_concat = concat_prot_act(sc_prot_act_full, sn_prot_act_full, data_dir, combined_prot_act_full_name, revised_info_xlsx, logger) 
 
-    # Convert the protein activity to human genes and msigdb regulons
+    # Convert the protein activity to human genes and run pyviper with msigdb regulons
     msigdb_prot_act_name = "msigdb_prot_act.h5ad"
     get_msigdb_vp(data_dir, msigdb_prot_act_name, prot_act_full_concat, logger)
 
-    # Canvert the adata to human genes and asanagi regulons
-    asanagi_prot_act_name = "asanagi_prot_act_anr.h5ad"
+    # Convert the protein activity to human genes and run pyviper with ar regulons
+    ar_prot_act_name = "prot_act_nepc_ar.h5ad"
+    revised_info_csv = os.path.join(data_dir, "ar-and-nepc-regulons-new-4-sets.csv")
+    get_ar_vp(data_dir, ar_prot_act_name, prot_act_full_concat,revised_info_csv, logger)
+
+    # Convert the adata to human genes and asanagi regulons
+    asanagi_prot_act_name = "asanagi_prot_act_enr.h5ad"
     get_adata_anr(prot_act_concat, sc_adata, sn_adata, data_dir, asanagi_prot_act_name, logger)
+
+    # Get the optimal amount of clusters using acdc
+    acdc_params_name = "acdc_params.csv"
+    get_acdc_clusters(data_dir, acdc_params_name, prot_act_concat, logger, n_cores)
 
 if __name__ == '__main__':
     main()
